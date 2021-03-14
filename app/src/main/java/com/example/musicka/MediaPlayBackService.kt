@@ -1,5 +1,6 @@
 package com.example.musicka
 
+import android.app.Notification
 import android.media.Rating
 import android.media.browse.MediaBrowser
 import android.media.session.MediaSession
@@ -7,23 +8,22 @@ import android.media.session.PlaybackState
 import android.os.Build
 import android.os.Bundle
 import android.service.media.MediaBrowserService
+import android.support.v4.media.MediaBrowserCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationCompatSideChannelService
 import androidx.core.content.ContextCompat
+import androidx.media.MediaBrowserServiceCompat
+import androidx.media.session.MediaButtonReceiver
 
-class MediaPlayBackService :MediaBrowserService() {
+class MediaPlayBackService :MediaBrowserServiceCompat() {
 
 
-    lateinit var mediaSession: MediaSession
+    lateinit var mediaSession: MediaSessionCompat
 
-    var stateBuilder:PlaybackState.Builder?=null
+    var stateBuilder:PlaybackStateCompat.Builder?=null
 
-    override fun onGetRoot(p0: String, p1: Int, p2: Bundle?): BrowserRoot? {
-        return MediaBrowserService.BrowserRoot("emptyid",null)
-    }
-
-    override fun onLoadChildren(p0: String, p1: Result<MutableList<MediaBrowser.MediaItem>>) {
-        p1.sendResult(null)
-    }
 
     companion object{
         val TAG="musicservice"
@@ -33,20 +33,20 @@ class MediaPlayBackService :MediaBrowserService() {
         super.onCreate()
 
         // Create a MediaSessionCompat
-        mediaSession = MediaSession(baseContext, TAG).apply {
+        mediaSession = MediaSessionCompat(baseContext, TAG).apply {
 
             // Enable callbacks from MediaButtons and TransportControls
             if(Build.VERSION.SDK_INT<=Build.VERSION_CODES.Q){
-                setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS
-                        or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS
+                setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS
+                        or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
                 )
             }
 
 
             // Set an initial PlaybackState with ACTION_PLAY, so media buttons can start the player
-            stateBuilder = PlaybackState.Builder()
-                .setActions(PlaybackState.ACTION_PLAY
-                        or PlaybackState.ACTION_PLAY_PAUSE
+            stateBuilder = PlaybackStateCompat.Builder()
+                .setActions(PlaybackStateCompat.ACTION_PLAY
+                        or PlaybackStateCompat.ACTION_PLAY_PAUSE
                 )
             setPlaybackState(stateBuilder!!.build())
 
@@ -54,11 +54,35 @@ class MediaPlayBackService :MediaBrowserService() {
             setCallback(MySessionCallback())
 
             // Set the session's token so that client activities can communicate with it.
-            setSessionToken(sessionToken)
+            (sessionToken).also { setSessionToken(it) }
         }
     }
 
-    class MySessionCallback:MediaSession.Callback(){
+    override fun onGetRoot(
+        clientPackageName: String,
+        clientUid: Int,
+        rootHints: Bundle?
+    ): BrowserRoot? {
+        return MediaBrowserServiceCompat.BrowserRoot("emptyid",null)
+    }
+
+    override fun onLoadChildren(
+        parentId: String,
+        result: Result<MutableList<MediaBrowserCompat.MediaItem>>
+    ) {
+        result.sendResult( null
+        )
+    }
+
+    /*override fun onGetRoot(p0: String, p1: Int, p2: Bundle?): BrowserRoot? {
+        return MediaBrowserService.BrowserRoot("emptyid",null)
+    }
+
+    override fun onLoadChildren(p0: String, p1: Result<MutableList<MediaBrowser.MediaItem>>) {
+        p1.sendResult(null)
+    }*/
+
+    class MySessionCallback:MediaSessionCompat.Callback(){
         override fun onPrepare() {
             super.onPrepare()
         }
@@ -79,9 +103,6 @@ class MediaPlayBackService :MediaBrowserService() {
             super.onSeekTo(pos)
         }
 
-        override fun onSetRating(rating: Rating) {
-            super.onSetRating(rating)
-        }
 
         override fun onSetPlaybackSpeed(speed: Float) {
             super.onSetPlaybackSpeed(speed)
@@ -111,7 +132,7 @@ class MediaPlayBackService :MediaBrowserService() {
             // Stop the service when the notification is swiped away
             setDeleteIntent(
                 MediaButtonReceiver.buildMediaButtonPendingIntent(
-                    context,
+                    this@MediaPlayBackService,
                     PlaybackStateCompat.ACTION_STOP
                 )
             )
@@ -131,13 +152,14 @@ class MediaPlayBackService :MediaBrowserService() {
                     getString(R.string.pause),
                     MediaButtonReceiver.buildMediaButtonPendingIntent(
                         this@MediaPlayBackService,
-                        PlaybackState.ACTION_PLAY_PAUSE
+                        PlaybackStateCompat.ACTION_PLAY_PAUSE
                     )
                 )
             )
 
             // Take advantage of MediaStyle features
-            setStyle(NotificationCompat.MediaStyle()
+            setStyle(
+                androidx.media.app.NotificationCompat.MediaStyle()
                 .setMediaSession(mediaSession.sessionToken)
                 .setShowActionsInCompactView(0)
 
@@ -145,15 +167,17 @@ class MediaPlayBackService :MediaBrowserService() {
                 .setShowCancelButton(true)
                 .setCancelButtonIntent(
                     MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
+                        this@MediaPlayBackService,
                         PlaybackStateCompat.ACTION_STOP
                     )
                 )
             )
         }
 
+        var id=1
+
         // Display the notification and place the service in the foreground
-        startForeground(id, builder.build())
+        startForeground(++id, builder.build())
 
     }
 }
