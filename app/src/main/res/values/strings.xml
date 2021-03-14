@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">musicka</string>
+    <string name="pause">pause</string>
 </resources>
