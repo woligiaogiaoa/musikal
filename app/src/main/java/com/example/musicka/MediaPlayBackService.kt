@@ -1,18 +1,18 @@
 package com.example.musicka
 
-import android.app.Notification
-import android.media.Rating
-import android.media.browse.MediaBrowser
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.*
+import android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY
 import android.os.Build
 import android.os.Bundle
 import android.service.media.MediaBrowserService
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationCompatSideChannelService
 import androidx.core.content.ContextCompat
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media.session.MediaButtonReceiver
@@ -51,10 +51,17 @@ class MediaPlayBackService :MediaBrowserServiceCompat() {
             setPlaybackState(stateBuilder!!.build())
 
             // MySessionCallback() has methods that handle callbacks from a media controller
-            setCallback(MySessionCallback())
+            setCallback(callback)
 
             // Set the session's token so that client activities can communicate with it.
             (sessionToken).also { setSessionToken(it) }
+
+            afChangeListener=object :AudioManager.OnAudioFocusChangeListener{
+                override fun onAudioFocusChange(focusChange: Int) {
+
+                }
+
+            }
         }
     }
 
@@ -70,47 +77,11 @@ class MediaPlayBackService :MediaBrowserServiceCompat() {
         parentId: String,
         result: Result<MutableList<MediaBrowserCompat.MediaItem>>
     ) {
-        result.sendResult( null
-        )
-    }
-
-    /*override fun onGetRoot(p0: String, p1: Int, p2: Bundle?): BrowserRoot? {
-        return MediaBrowserService.BrowserRoot("emptyid",null)
-    }
-
-    override fun onLoadChildren(p0: String, p1: Result<MutableList<MediaBrowser.MediaItem>>) {
-        p1.sendResult(null)
-    }*/
-
-    class MySessionCallback:MediaSessionCompat.Callback(){
-        override fun onPrepare() {
-            super.onPrepare()
-        }
-
-        override fun onPlay() {
-            super.onPlay()
-        }
-
-        override fun onPause() {
-            super.onPause()
-        }
-
-        override fun onStop() {
-            super.onStop()
-        }
-
-        override fun onSeekTo(pos: Long) {
-            super.onSeekTo(pos)
-        }
-
-
-        override fun onSetPlaybackSpeed(speed: Float) {
-            super.onSetPlaybackSpeed(speed)
-        }
+        result.sendResult( null)
     }
     val channelId="musicServiceChannelId"
 
-    fun buildNotification(){
+    fun buildNotificationAndStart(){
         // Given a media session and its context (usually the component containing the session)
         // Create a NotificationCompat.Builder
 
@@ -179,5 +150,107 @@ class MediaPlayBackService :MediaBrowserServiceCompat() {
         // Display the notification and place the service in the foreground
         startForeground(++id, builder.build())
 
+    }
+    val music="https://www.bensound.com/bensound-music/bensound-betterdays.mp3"
+
+    /*template*/
+    private val intentFilter = IntentFilter(ACTION_AUDIO_BECOMING_NOISY)
+
+    // Defined elsewhere...
+    private lateinit var afChangeListener: AudioManager.OnAudioFocusChangeListener
+    //todo:receiver code
+   // private val myNoisyAudioStreamReceiver = BecomingNoisyReceiver()
+
+    //private lateinit var myPlayerNotification: MediaStyleNotification
+    var player: MediaPlayer? = null
+
+    private lateinit var audioFocusRequest: AudioFocusRequest
+
+    private val callback = object: MediaSessionCompat.Callback() {
+
+        @RequiresApi(Build.VERSION_CODES.O)
+        override fun onPlay() {
+
+            val context=this@MediaPlayBackService
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            // Request audio focus for playback, this registers the afChangeListener
+
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).run {
+                setOnAudioFocusChangeListener(afChangeListener)
+                setAudioAttributes(AudioAttributes.Builder().run {
+                    setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    build()
+                })
+                build()
+            }
+            val result = am.requestAudioFocus(audioFocusRequest)
+            if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                // Start the service
+                startService(Intent(context, MediaBrowserService::class.java))
+                // Set the session active  (and update metadata and state)
+                mediaSession.isActive = true
+                // start the player (custom call)
+
+                //TODO 正在播放
+                startPlayer()
+                // Register BECOME_NOISY BroadcastReceiver
+                //registerReceiver(myNoisyAudioStreamReceiver, intentFilter)
+                // Put the service in the foreground, post notification
+                buildNotificationAndStart()
+            }
+        }
+
+        @RequiresApi(Build.VERSION_CODES.O)
+        override fun onStop() {
+            val context=this@MediaPlayBackService
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            // Abandon audio focus
+            am.abandonAudioFocusRequest(audioFocusRequest)
+            //unregisterReceiver(myNoisyAudioStreamReceiver)
+            // Stop the service
+
+            stopSelf()
+            // Set the session inactive  (and update metadata and state)
+            mediaSession.isActive = false
+            // stop the player (custom call)
+            // Take the service out of the foreground
+            player?.stop()
+            stopForeground(true)
+        }
+
+        override fun onPause() {
+            val context=this@MediaPlayBackService
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            // Update metadata and state
+            // pause the player (custom call)
+            player?.pause()
+            // unregister BECOME_NOISY BroadcastReceiver
+            //unregisterReceiver(myNoisyAudioStreamReceiver)
+            // Take the service out of the foreground, retain the notification
+            stopForeground(false)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        player?.release()
+        player ?: return
+        player=null
+    }
+
+    private fun startPlayer() {
+        val url =music // your URL here
+        if(player==null) {
+            player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                )
+                setDataSource(url)
+            }
+        }
+        player!!.prepare();player!!.start()
     }
 }
