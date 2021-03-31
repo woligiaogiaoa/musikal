@@ -11,6 +11,7 @@ import android.media.MediaPlayer.*
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -20,6 +21,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.*
 import java.lang.Exception
+import kotlin.concurrent.thread
 import kotlin.coroutines.resume
 
 
@@ -40,7 +42,7 @@ class MyPlayBackService : Service() {
 
     val scope = CoroutineScope(Dispatchers.Main.immediate + job)
 
-    val mediaPlayer by lazy { MediaPlayer() }
+    var mediaPlayer: MediaPlayer? =MediaPlayer()
 
     override fun onBind(intent: Intent?): IBinder? {
         return musicController
@@ -56,7 +58,7 @@ class MyPlayBackService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        mediaPlayer.release()
+        mediaPlayer?.release()
         scope.cancel()
         musicController.songChannel.close()
     }
@@ -64,7 +66,7 @@ class MyPlayBackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.getStringExtra("id")?.also {
             if(!it.isNullOrEmpty() ){
-                musicController.playFormStart(it)
+                musicController.handleSongClick(it)
             }
         }
         return super.onStartCommand(intent, flags, startId)
@@ -122,18 +124,15 @@ class MyPlayBackService : Service() {
 
     class MusicRepository() {
         val data
-            get() = mutableListOf("https://www.bensound.com/bensound-music/bensound-sunny.mp3",
-                    "https://www.bensound.com/bensound-music/bensound-sunny.mp3")
+            get() = mutableListOf("http://m801.music.126.net/20210331211617/a816f7d8088c3885e4da53c671152bfc/jdymusic/obj/w5zDlMODwrDDiGjCn8Ky/2234478436/ea74/268b/d0b0/35427f829b28d425340b3d6b8db8030a.mp3",
+                "http://m701.music.126.net/20210331211701/add5c3fd6f323a2d2b0e8e7f751fa20a/jdymusic/obj/wo3DlMOGwrbDjj7DisKw/4959745806/482a/1a84/ca27/02c0f32c8c1b78a97988cebbee2ede1b.mp3")
     }
 
     @ExperimentalCoroutinesApi
     inner class ServiceMusicController : Binder() {
-/*
         val musicRepository
-        get() = this@MyService.musicRepository*/
+        get() = this@MyPlayBackService.musicRepository
 
- /*       val service
-        get() = this@MyService*/
 
         //not playing idle
         val INIT=0 //created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
@@ -147,11 +146,7 @@ class MyPlayBackService : Service() {
         //todo restore last play
         val pendingSong = MutableLiveData<String>().apply { value = musicRepository.data[0] }
 
-        val songs = MutableLiveData<List<String>>().apply { value = musicRepository.data }
-
         val currentProcessingSong = MutableLiveData<String>()
-
-
 
 
         val musicData = MutableLiveData<List<String>>().apply {
@@ -160,8 +155,8 @@ class MyPlayBackService : Service() {
 
         fun getService()=this@MyPlayBackService
 
-      /*  val scope
-            get() = this@MyService.scope*/
+        val scope
+            get() = this@MyPlayBackService.scope
 
         val songChannel = ConflatedBroadcastChannel<String>()
 
@@ -170,17 +165,92 @@ class MyPlayBackService : Service() {
         val songFlow = songChannel.asFlow()
                 .flatMapLatest {
                     flow {
-                        emit(mediaPlayer.prepareSong(it))
+                        emit(mediaPlayer?.prepareSong(it))
                     }
                 }
+
+        val songFocus=MutableLiveData<String>()
+
+
+
+        //播放音乐 或者 暂停音乐
+        fun handleSongClick(song:String){
+            val  hasSong=songChannel.valueOrNull!=null
+            if(mediaPlayer!!.isPlaying && hasSong){  //playing
+                if(song.equals(songChannel.value)){
+                    //pause
+                    playbackState.value=PAUSED
+                    songFocus.value=song
+                    mediaPlayer!!.pause()
+                    return
+                }else{
+                    playFormStart(song) //preparing
+                    return
+                }
+            }
+            else if(!hasSong){
+                playFormStart(song)
+                songFocus.value=song
+                return
+            }else{
+                // has song
+                if(playbackState.value==PAUSED){
+                    songFocus.value=song
+                    playbackState.value=PLAYING
+                    mediaPlayer!!.start()
+                    return
+                }
+                else{
+                    playFormStart(song)
+                    songFocus.value=song
+                }
+            }
+        }
 
 
         //重置播放器，播放一首歌曲
         fun playFormStart(song: String) {
             playbackState.value=PREPARING
+            pendingSong.value= song
             showNotification(song) //update
             currentProcessingSong.value = song
             songChannel.offer(song)
+        }
+
+        fun pause() {
+            if(mediaPlayer!!.isPlaying){
+                mediaPlayer!!.pause()
+                playbackState.value=PAUSED
+            }
+        }
+
+        fun reset(){
+            (songChannel.valueOrNull!!).also {
+                playFormStart(it) //直接单曲循环
+            }
+        }
+
+        val completeListener=object :OnCompletionListener{
+            override fun onCompletion(mp: MediaPlayer?) {
+                playbackState.value = COMPLETED //error accur or completed
+                currentProcessingSong.value = null
+                songChannel.valueOrNull ?: return
+                (songChannel.valueOrNull!!).also {
+                    pendingSong.value = it //未播放的时候使用
+                }
+            }
+        }
+
+        val error = OnErrorListener { mp, what, extra ->
+            val message = when (what) {
+                MEDIA_ERROR_IO -> "MEDIA_ERROR_IO"
+                MEDIA_ERROR_MALFORMED -> "MEDIA_ERROR_MALFORMED"
+                MEDIA_ERROR_UNSUPPORTED -> "MEDIA_ERROR_UNSUPPORTED"
+                MEDIA_ERROR_TIMED_OUT -> "MEDIA_ERROR_TIMED_OUT"
+                else -> "unknown"
+            }
+            Toast.makeText(this@MyPlayBackService, message, Toast.LENGTH_SHORT).show()
+            false
         }
 
         init {
@@ -188,56 +258,26 @@ class MyPlayBackService : Service() {
             scope.launch {
                 songFlow.collect {
                     //todo: play it
-                    mediaPlayer.start()
+                    pendingSong.value=it
+                    mediaPlayer!!.start()
                     playbackState.value = PLAYING
                 }
             }
 
-            mediaPlayer.setOnCompletionListener {
-                //重新播放
-
-                playbackState.value=COMPLETED
-                currentProcessingSong.value=null
-                songChannel.valueOrNull ?: return@setOnCompletionListener
-                (songChannel.valueOrNull!!).also {
-                    //playFormStart(it) //直接单曲循环
-                    pendingSong.value=it
-                }
-            }
-
-            mediaPlayer.setOnErrorListener { mp: MediaPlayer, what: Int, extra: Int ->
-                val message = when (what) {
-                    MEDIA_ERROR_IO -> "MEDIA_ERROR_IO"
-                    MEDIA_ERROR_MALFORMED -> "MEDIA_ERROR_MALFORMED"
-                    MEDIA_ERROR_UNSUPPORTED -> "MEDIA_ERROR_UNSUPPORTED"
-                    MEDIA_ERROR_TIMED_OUT -> "MEDIA_ERROR_TIMED_OUT"
-                    else -> "unknown"
-                }
-                Toast.makeText(this@MyPlayBackService, message, Toast.LENGTH_SHORT).show()
-                false
-            }
-
-
-            fun pause() {
-                if(mediaPlayer.isPlaying){
-                   mediaPlayer.pause()
-                   playbackState.value=PAUSED
-                }
-            }
-
-            fun reset(){
-                (songChannel.valueOrNull!!).also {
-                    playFormStart(it) //直接单曲循环
-                }
-            }
         }
 
         suspend fun MediaPlayer.prepareSong(song: String): String = suspendCancellableCoroutine { cont ->
-            reset()
-            setDataSource(song)
-            prepareAsync()
-            setOnPreparedListener {
-                cont.resume(song)
+            mediaPlayer?.reset()
+            mediaPlayer?.release()
+            mediaPlayer=null
+            mediaPlayer=MediaPlayer().apply {
+                setDataSource(song)
+                prepareAsync()
+                setOnPreparedListener {
+                    cont.resume(song)
+                }
+                setOnCompletionListener(completeListener)
+                setOnErrorListener (error)
             }
         }
 
