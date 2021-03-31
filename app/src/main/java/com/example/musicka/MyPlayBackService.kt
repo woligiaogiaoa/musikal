@@ -62,6 +62,11 @@ class MyPlayBackService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.getStringExtra("id")?.also {
+            if(!it.isNullOrEmpty() ){
+                musicController.playFormStart(it)
+            }
+        }
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -142,10 +147,12 @@ class MyPlayBackService : Service() {
         //todo restore last play
         val pendingSong = MutableLiveData<String>().apply { value = musicRepository.data[0] }
 
+        val songs = MutableLiveData<List<String>>().apply { value = musicRepository.data }
+
         val currentProcessingSong = MutableLiveData<String>()
 
-     /*   val player
-            get() = mediaPlayer*/
+
+
 
         val musicData = MutableLiveData<List<String>>().apply {
             value = musicRepository.data
