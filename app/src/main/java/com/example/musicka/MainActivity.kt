@@ -83,7 +83,6 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 // Since this is a play/pause button, you'll need to test the current state
                 // and choose the action accordingly
-
                 val pbState = mediaController.playbackState.state
                 if (pbState == PlaybackStateCompat.STATE_PLAYING) {
                     mediaController.transportControls.pause()
