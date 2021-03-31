@@ -2,18 +2,19 @@ package com.example.musicka
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
-import android.media.MediaPlayer
+import android.media.*
 import android.media.MediaPlayer.*
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.MutableLiveData
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ConflatedBroadcastChannel
@@ -23,10 +24,10 @@ import kotlin.coroutines.resume
 
 
 const val CHANNEL_ID = "jsn Music Channel Id" // 通知通道 ID
-class MService : Service() {
+class MyPlayBackService : Service() {
 
     val musicController by lazy {
-        MusicController(musicRepository)
+        ServiceMusicController()
     }
 
     val musicRepository by lazy {
@@ -121,11 +122,18 @@ class MService : Service() {
     }
 
     @ExperimentalCoroutinesApi
-    inner class MusicController(val musicRepository: MusicRepository) : Binder() {
+    inner class ServiceMusicController : Binder() {
+/*
+        val musicRepository
+        get() = this@MyService.musicRepository*/
 
-        val INIT=0 //created nothing playing    init ->  preparing -> playing ->pause ->playing ->completed
+ /*       val service
+        get() = this@MyService*/
+
+        //not playing idle
+        val INIT=0 //created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
         val PLAYING = 1
-        val COMPLETED = 2
+        val COMPLETED = 2 //idle
         val PAUSED = 3
         val PREPARING=5
 
@@ -136,15 +144,17 @@ class MService : Service() {
 
         val currentProcessingSong = MutableLiveData<String>()
 
-        val player
-            get() = mediaPlayer
+     /*   val player
+            get() = mediaPlayer*/
 
         val musicData = MutableLiveData<List<String>>().apply {
             value = musicRepository.data
         }
 
-        val scope
-            get() = this@MService.scope
+        fun getService()=this@MyPlayBackService
+
+      /*  val scope
+            get() = this@MyService.scope*/
 
         val songChannel = ConflatedBroadcastChannel<String>()
 
@@ -161,11 +171,13 @@ class MService : Service() {
         //重置播放器，播放一首歌曲
         fun playFormStart(song: String) {
             playbackState.value=PREPARING
+            showNotification(song) //update
             currentProcessingSong.value = song
             songChannel.offer(song)
         }
 
         init {
+
             scope.launch {
                 songFlow.collect {
                     //todo: play it
@@ -181,7 +193,8 @@ class MService : Service() {
                 currentProcessingSong.value=null
                 songChannel.valueOrNull ?: return@setOnCompletionListener
                 (songChannel.valueOrNull!!).also {
-                    playFormStart(it) //直接单曲循环
+                    //playFormStart(it) //直接单曲循环
+                    pendingSong.value=it
                 }
             }
 
@@ -193,7 +206,7 @@ class MService : Service() {
                     MEDIA_ERROR_TIMED_OUT -> "MEDIA_ERROR_TIMED_OUT"
                     else -> "unknown"
                 }
-                Toast.makeText(this@MService, message, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MyPlayBackService, message, Toast.LENGTH_SHORT).show()
                 false
             }
 
@@ -212,19 +225,57 @@ class MService : Service() {
             }
         }
 
+        suspend fun MediaPlayer.prepareSong(song: String): String = suspendCancellableCoroutine { cont ->
+            reset()
+            setDataSource(song)
+            prepareAsync()
+            setOnPreparedListener {
+                cont.resume(song)
+            }
+        }
+
+
     }
 
-    suspend fun MediaPlayer.prepareSong(song: String): String = suspendCancellableCoroutine { cont ->
-        reset()
-        setDataSource(song)
-        prepareAsync()
-        setOnPreparedListener {
-            cont.resume(song)
-        }
+
+    private fun getPendingIntentActivity(): PendingIntent {
+        val intentMain = Intent(this, BindingActivity::class.java)
+        return PendingIntent.getActivity(this, 1, intentMain, PendingIntent.FLAG_UPDATE_CURRENT)
     }
+
+    /**
+     * 显示通知
+     */
+    private fun showNotification( song: String?) {
+
+        val fromLyric=false
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID).apply {
+            setSmallIcon(R.drawable.ic_launcher_background)
+            setLargeIcon(ContextCompat.getDrawable(this@MyPlayBackService,R.mipmap.ic_launcher)!!.toBitmap())
+            setContentTitle(song)
+            setContentText(song)
+            setContentIntent(getPendingIntentActivity())
+            /*addAction(R.drawable.ic_baseline_skip_previous_24, "Previous", getPendingIntentPrevious())
+            addAction(getPlayIcon(), "play", getPendingIntentPlay())
+            addAction(R.drawable.ic_baseline_skip_next_24, "next", getPendingIntentNext())*/
+          /*  setStyle(
+                    androidx.media.app.NotificationCompat.MediaStyle()
+                            .setMediaSession(mediaSession?.sessionToken)
+                            .setShowActionsInCompactView(0, 1, 2)
+            )*/
+            setOngoing(true)
+         /*   if (getCurrentLineLyricEntry()?.text != null && fromLyric && musicController.statusBarLyric) {
+                setTicker(getCurrentLineLyricEntry()?.text) // 魅族状态栏歌词的实现方法
+            }*/
+            // .setAutoCancel(true)
+        }.build()
+        startForeground(START_FOREGROUND_ID, notification)
+    }
+
 
 }
 
+const val START_FOREGROUND_ID = 10 // 开启前台服务的 ID
 
 
 
