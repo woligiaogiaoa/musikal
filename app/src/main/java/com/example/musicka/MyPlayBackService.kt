@@ -11,14 +11,15 @@ import android.media.MediaPlayer.*
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.preference.PreferenceManager
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.map
-import com.example.musicka.MyPlayBackService.Companion.INIT
+import com.airbnb.epoxy.preload.PreloadRequestHolder
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.*
@@ -57,13 +58,12 @@ object AppMusicUtil{
 
     val pendingSong=MutableLiveData<String>()
 
-    val focusSong=MutableLiveData<String>()
+    val focusSong=MutableLiveData<String>() //channel song
 }
 
 @ExperimentalCoroutinesApi
 @FlowPreview
 class MyPlayBackService : Service() {
-
 
 
     val musicController by lazy {
@@ -99,6 +99,7 @@ class MyPlayBackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         musicController.playbackState.value= COMPLETED
+        musicController.songFocus.value=null
         mediaPlayer?.release()
         scope.cancel()
         musicController.songChannel.close()
@@ -106,7 +107,7 @@ class MyPlayBackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.getStringExtra("id")?.also {
-            if(!it.isNullOrEmpty() ){
+            if(!it.isEmpty() ){
                 musicController.handleSongClick(it)
             }
         }
@@ -178,18 +179,37 @@ class MyPlayBackService : Service() {
         val PAUSED = 3
         val PREPARING=5
 
+
+        /*REPEAT*/
+        val REAPEAT=6
+
+
+        /*RECENT PLAY*/
+        val RECENT="RECENT_SONG"
+
     }
+
+
 
     @ExperimentalCoroutinesApi
     inner class ServiceMusicController : Binder() {
+
+        val mode= REAPEAT
+
         val musicRepository
         get() = this@MyPlayBackService.musicRepository
+
+        val sp by lazy {
+            PreferenceManager.getDefaultSharedPreferences(this@MyPlayBackService)
+        }
 
 
         val playbackState = MutableLiveData<Int>().apply { value = INIT }
 
         //todo restore last play
-        val pendingSong = MutableLiveData<String>().apply { value = musicRepository.data[0] }
+        val pendingSong = MutableLiveData<String?>().apply { sp.getString(RECENT,"") }
+
+        fun saveRecent(s:String)=sp.edit { putString(RECENT,s) }
 
         val currentProcessingSong = MutableLiveData<String?>()
 
@@ -210,7 +230,7 @@ class MyPlayBackService : Service() {
         val songFlow = songChannel.asFlow()
                 .flatMapLatest {
                     flow {
-                        emit(mediaPlayer?.prepareSong(it))
+                        emit(mediaPlayer!!.prepareSong(it))
                     }
                 }
 
@@ -231,6 +251,7 @@ class MyPlayBackService : Service() {
                     playbackState.value=PAUSED
                     songFocus.value=song
                     mediaPlayer!!.pause()
+                    updateNotification(song, PAUSED)
                     return
                 }else{
                     playFormStart(song) //preparing
@@ -246,6 +267,7 @@ class MyPlayBackService : Service() {
                 if(playbackState.value==PAUSED && song.equals(songChannel.valueOrNull!!)){
                     songFocus.value=song
                     playbackState.value=PLAYING
+                    updateNotification(song, PLAYING)
                     mediaPlayer!!.start()
                     return
                 }
@@ -256,13 +278,16 @@ class MyPlayBackService : Service() {
             }
         }
 
+        var isError=false
 
-        //重置播放器，播放一首歌曲
+
         fun playFormStart(song: String) {
-            playbackState.value=PREPARING
+            isError=false
             songFocus.value=song
-            pendingSong.value= song
-            showNotification(song) //update
+            playbackState.value=PREPARING
+            updateNotification(song, PREPARING)
+            songFocus.value=song
+            pendingSong.value= song.also { saveRecent(it) }
             currentProcessingSong.value = song
             songChannel.offer(song)
         }
@@ -287,6 +312,12 @@ class MyPlayBackService : Service() {
                 songChannel.valueOrNull ?: return
                 (songChannel.valueOrNull!!).also {
                     pendingSong.value = it //未播放的时候使用
+                   saveRecent(it)
+                }
+                if(!isError){
+                    if(mode== REAPEAT){
+                        playFormStart(songChannel.valueOrNull!!)
+                    }
                 }
             }
         }
@@ -299,6 +330,7 @@ class MyPlayBackService : Service() {
                 MEDIA_ERROR_TIMED_OUT -> "MEDIA_ERROR_TIMED_OUT"
                 else -> "unknown"
             }
+            isError=true
             Toast.makeText(this@MyPlayBackService, message, Toast.LENGTH_SHORT).show()
             false
         }
@@ -309,8 +341,10 @@ class MyPlayBackService : Service() {
                 songFlow.collect {
                     //todo: play it
                     pendingSong.value=it
+                    saveRecent(it)
                     mediaPlayer!!.start()
                     playbackState.value = PLAYING
+                    updateNotification(it, PLAYING)
                 }
             }
 
@@ -343,12 +377,15 @@ class MyPlayBackService : Service() {
     /**
      * 显示通知
      */
-    private fun showNotification( song: String?) {
+    private fun updateNotification(song: String?,state:Int) {
+
+        Log.e("state", "updateNotification:${state}", )
+        val mipmap=ContextCompat.getDrawable(this@MyPlayBackService,if(state== PLAYING || state== PREPARING) R.mipmap.pause else R.mipmap.play )!!.toBitmap()
 
         val fromLyric=false
         val notification = NotificationCompat.Builder(this, CHANNEL_ID).apply {
             setSmallIcon(R.drawable.ic_launcher_background)
-            setLargeIcon(ContextCompat.getDrawable(this@MyPlayBackService,R.mipmap.ic_launcher)!!.toBitmap())
+            setLargeIcon(mipmap)
             setContentTitle(song)
             setContentText(song)
             setContentIntent(getPendingIntentActivity())

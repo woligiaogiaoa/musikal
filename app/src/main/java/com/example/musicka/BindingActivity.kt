@@ -6,7 +6,9 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
 import android.os.IBinder
+import android.preference.PreferenceManager
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
 import androidx.databinding.DataBindingUtil
 import com.airbnb.epoxy.EpoxyRecyclerView
 import com.example.musicka.MyPlayBackService.Companion.COMPLETED
@@ -14,15 +16,20 @@ import com.example.musicka.MyPlayBackService.Companion.INIT
 import com.example.musicka.MyPlayBackService.Companion.PAUSED
 import com.example.musicka.MyPlayBackService.Companion.PLAYING
 import com.example.musicka.MyPlayBackService.Companion.PREPARING
+import com.example.musicka.MyPlayBackService.Companion.RECENT
 import com.example.musicka.databinding.ActivityMisBinding
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import org.intellij.lang.annotations.Flow
 
-
+@FlowPreview
+@ExperimentalCoroutinesApi
 class BindingActivity : AppCompatActivity() {
 
     var mPlayBackService: MyPlayBackService?=null
 
     private var mBound: Boolean = false
+
 
 
     val controller: MyPlayBackService.ServiceMusicController?
@@ -88,6 +95,10 @@ class BindingActivity : AppCompatActivity() {
 
     lateinit var binding :ActivityMisBinding
 
+    val sp get() = PreferenceManager.getDefaultSharedPreferences(this)
+
+    val recent get() = sp.getString(RECENT,"")
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,32 +109,41 @@ class BindingActivity : AppCompatActivity() {
             when (it) {
                 //not playing idle
                 INIT -> {
-                    AppMusicUtil.pendingSong?.value?.also {
+                    AppMusicUtil.pendingSong.value?.also {
+                        binding.controllerView.isVisible=true
                         binding.tvSong.text=it
                     }
                     binding.playPause.setImageResource(R.mipmap.play)
                 }//created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
                 PLAYING -> {
                     AppMusicUtil.focusSong.value?.also {
+                        binding.controllerView.isVisible=true
                         binding.tvSong.text=it
                     }
                     binding.playPause.setImageResource(R.mipmap.pause)
                 }
                 COMPLETED -> {
-                    AppMusicUtil.pendingSong?.value?.also {
+                    AppMusicUtil.pendingSong.value?.also {
+                        binding.controllerView.isVisible=true
+                        binding.tvSong.text=it
+                    }
+                    AppMusicUtil.focusSong.value?.also {
+                        binding.controllerView.isVisible=true
                         binding.tvSong.text=it
                     }
                     binding.playPause.setImageResource(R.mipmap.play)
                 } //idle
                 PAUSED -> {
                     AppMusicUtil.focusSong.value?.also {
+                        binding.controllerView.isVisible=true
                         binding.tvSong.text=it
                     }
                     binding.playPause.setImageResource(R.mipmap.play)
                 }
                 PREPARING -> {
-                    AppMusicUtil.pendingSong?.value?.also {
+                    AppMusicUtil.focusSong.value!!.also {
                         binding.tvSong.text=it
+                        binding.controllerView.isVisible=true
                     }
                     binding.playPause.setImageResource(R.mipmap.pause)
                 }
@@ -132,15 +152,25 @@ class BindingActivity : AppCompatActivity() {
                 }
             }
         }
-        if(AppMusicUtil.pendingSong.value!=null){
+
+
+        if(AppMusicUtil.pendingSong.value!=null && AppMusicUtil.pendingSong.value!!.equals(recent)){
             AppMusicUtil.pendingSong.value?.also {
-                AppMusicUtil.pendingSong?.value?.also {
+                AppMusicUtil.pendingSong.value?.also {
                     binding.tvSong.text=it
                 }
             }
         }
         else{
-            binding.tvSong.text="http://isure.stream.qqmusic.qq.com/C400003zDTau0boSQm.m4a?guid=2958323637&vkey=72B5A322351DCFB5B1FF4C3013479DF80E8EC61E196DB7C407BA21BCAA529E820A940220AECBBA553F67118D1805A16579C01AE30C2291D0&uin=3203891186&fromtag=66"
+
+            fun goneControllerview(){binding.controllerView.isVisible=false}
+
+            if(recent.isNullOrEmpty()){
+                goneControllerview()
+            }else{
+                binding.controllerView.isVisible=true
+                binding.tvSong.text=recent
+            }
         }
 
 
@@ -152,7 +182,9 @@ class BindingActivity : AppCompatActivity() {
                 }
                 return@setOnClickListener
             }
-            AppMusicUtil.pendingSong.value?.also { s  ->
+
+            val a: String? = if (AppMusicUtil.pendingSong.value.isNullOrEmpty()) null else AppMusicUtil.pendingSong.value
+            a?.also { s  ->
                 Intent(this@BindingActivity,MyPlayBackService::class.java).also {
                     it.putExtra("id",s)
                     startService(it)
@@ -161,7 +193,7 @@ class BindingActivity : AppCompatActivity() {
             }
 
             Intent(this@BindingActivity,MyPlayBackService::class.java).also {
-                it.putExtra("id","http://isure.stream.qqmusic.qq.com/C400003zDTau0boSQm.m4a?guid=2958323637&vkey=72B5A322351DCFB5B1FF4C3013479DF80E8EC61E196DB7C407BA21BCAA529E820A940220AECBBA553F67118D1805A16579C01AE30C2291D0&uin=3203891186&fromtag=66")
+                it.putExtra("id",recent)
                 startService(it)
             }
         }
