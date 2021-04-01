@@ -9,8 +9,14 @@ import android.os.IBinder
 import androidx.appcompat.app.AppCompatActivity
 import androidx.databinding.DataBindingUtil
 import com.airbnb.epoxy.EpoxyRecyclerView
+import com.example.musicka.MyPlayBackService.Companion.COMPLETED
+import com.example.musicka.MyPlayBackService.Companion.INIT
+import com.example.musicka.MyPlayBackService.Companion.PAUSED
+import com.example.musicka.MyPlayBackService.Companion.PLAYING
+import com.example.musicka.MyPlayBackService.Companion.PREPARING
 import com.example.musicka.databinding.ActivityMisBinding
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+
 
 class BindingActivity : AppCompatActivity() {
 
@@ -18,7 +24,9 @@ class BindingActivity : AppCompatActivity() {
 
     private var mBound: Boolean = false
 
-    var controller: MyPlayBackService.ServiceMusicController?=null
+
+    val controller: MyPlayBackService.ServiceMusicController?
+        get() = AppMusicUtil.controller?.get()
 
 
     var songs:List<String>?= emptyList()
@@ -31,7 +39,6 @@ class BindingActivity : AppCompatActivity() {
             // We've bound to LocalService, cast the IBinder and get LocalService instance
             val binder = service as MyPlayBackService.ServiceMusicController
             mPlayBackService = binder.getService()
-            controller=mPlayBackService!!.musicController
             if(songs.isNullOrEmpty())
             songs= controller!!.musicData.value!!
             updateUi(songs!!)
@@ -40,7 +47,6 @@ class BindingActivity : AppCompatActivity() {
 
         override fun onServiceDisconnected(arg0: ComponentName) {
             mPlayBackService=null
-            controller=null
             mBound = false
         }
     }
@@ -49,8 +55,8 @@ class BindingActivity : AppCompatActivity() {
         get() = findViewById<EpoxyRecyclerView>(R.id.rv)
 
     val data
-        get() = mutableListOf("http://m801.music.126.net/20210331211617/a816f7d8088c3885e4da53c671152bfc/jdymusic/obj/w5zDlMODwrDDiGjCn8Ky/2234478436/ea74/268b/d0b0/35427f829b28d425340b3d6b8db8030a.mp3",
-            "http://m701.music.126.net/20210331211701/add5c3fd6f323a2d2b0e8e7f751fa20a/jdymusic/obj/wo3DlMOGwrbDjj7DisKw/4959745806/482a/1a84/ca27/02c0f32c8c1b78a97988cebbee2ede1b.mp3")
+        get() = mutableListOf("http://isure.stream.qqmusic.qq.com/C400003zDTau0boSQm.m4a?guid=2958323637&vkey=72B5A322351DCFB5B1FF4C3013479DF80E8EC61E196DB7C407BA21BCAA529E820A940220AECBBA553F67118D1805A16579C01AE30C2291D0&uin=3203891186&fromtag=66",
+            "http://isure.stream.qqmusic.qq.com/C400000eMCTT1akCEg.m4a?guid=2958323637&vkey=9535B6CB21D053C2DCDC999804248BAD8BF1FC0716D7630476869D56128E56C5F0F42076FB9B186A18DDF3013490DDDD5248B35B645771EE&uin=3203891186&fromtag=66")
 
     private fun updateUi(songs: List<String>) {
         rv.withModels {
@@ -76,16 +82,90 @@ class BindingActivity : AppCompatActivity() {
         }
     }
 
+
     fun ensureBind()=mBound
 
 
     lateinit var binding :ActivityMisBinding
 
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_mis)
-        binding=DataBindingUtil.setContentView(this,R.layout.activity_mis)
+        binding = DataBindingUtil.setContentView(this, R.layout.activity_mis)
         updateUi(data)
+        AppMusicUtil.playbackState.observe(this) {
+            when (it) {
+                //not playing idle
+                INIT -> {
+                    AppMusicUtil.pendingSong?.value?.also {
+                        binding.tvSong.text=it
+                    }
+                    binding.playPause.setImageResource(R.mipmap.play)
+                }//created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
+                PLAYING -> {
+                    AppMusicUtil.focusSong.value?.also {
+                        binding.tvSong.text=it
+                    }
+                    binding.playPause.setImageResource(R.mipmap.pause)
+                }
+                COMPLETED -> {
+                    AppMusicUtil.pendingSong?.value?.also {
+                        binding.tvSong.text=it
+                    }
+                    binding.playPause.setImageResource(R.mipmap.play)
+                } //idle
+                PAUSED -> {
+                    AppMusicUtil.focusSong.value?.also {
+                        binding.tvSong.text=it
+                    }
+                    binding.playPause.setImageResource(R.mipmap.play)
+                }
+                PREPARING -> {
+                    AppMusicUtil.pendingSong?.value?.also {
+                        binding.tvSong.text=it
+                    }
+                    binding.playPause.setImageResource(R.mipmap.pause)
+                }
+                else ->{
+
+                }
+            }
+        }
+        if(AppMusicUtil.pendingSong.value!=null){
+            AppMusicUtil.pendingSong.value?.also {
+                AppMusicUtil.pendingSong?.value?.also {
+                    binding.tvSong.text=it
+                }
+            }
+        }
+        else{
+            binding.tvSong.text="http://isure.stream.qqmusic.qq.com/C400003zDTau0boSQm.m4a?guid=2958323637&vkey=72B5A322351DCFB5B1FF4C3013479DF80E8EC61E196DB7C407BA21BCAA529E820A940220AECBBA553F67118D1805A16579C01AE30C2291D0&uin=3203891186&fromtag=66"
+        }
+
+
+        binding.playPause.setOnClickListener {
+            AppMusicUtil.focusSong.value?.also { s  ->
+                Intent(this@BindingActivity,MyPlayBackService::class.java).also {
+                    it.putExtra("id",s)
+                    startService(it)
+                }
+                return@setOnClickListener
+            }
+            AppMusicUtil.pendingSong.value?.also { s  ->
+                Intent(this@BindingActivity,MyPlayBackService::class.java).also {
+                    it.putExtra("id",s)
+                    startService(it)
+                }
+                return@setOnClickListener
+            }
+
+            Intent(this@BindingActivity,MyPlayBackService::class.java).also {
+                it.putExtra("id","http://isure.stream.qqmusic.qq.com/C400003zDTau0boSQm.m4a?guid=2958323637&vkey=72B5A322351DCFB5B1FF4C3013479DF80E8EC61E196DB7C407BA21BCAA529E820A940220AECBBA553F67118D1805A16579C01AE30C2291D0&uin=3203891186&fromtag=66")
+                startService(it)
+            }
+        }
+
     }
 
     override fun onStart() {
@@ -100,7 +180,6 @@ class BindingActivity : AppCompatActivity() {
         super.onStop()
         //unbindService(connection)
         mPlayBackService=null
-        controller=null
         mBound = false
     }
 

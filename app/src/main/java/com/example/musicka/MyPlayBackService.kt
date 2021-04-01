@@ -11,25 +11,65 @@ import android.media.MediaPlayer.*
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.map
+import com.example.musicka.MyPlayBackService.Companion.INIT
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.*
 import java.lang.Exception
-import kotlin.concurrent.thread
+import java.lang.ref.WeakReference
 import kotlin.coroutines.resume
 
 
 const val CHANNEL_ID = "jsn Music Channel Id" // 通知通道 ID
+
+@ExperimentalCoroutinesApi
+@FlowPreview
+object AppMusicUtil{
+
+    var controller: WeakReference<MyPlayBackService.ServiceMusicController>? =null
+
+    set(value) {
+        field=value
+        value?.also {
+            it.get()!!.playbackState.observeForever {
+                playbackState.value=it
+            }
+            it.get()!!.pendingSong.observeForever {
+                pendingSong.value=it
+            }
+            it.get()!!.songFocus.observeForever {
+                focusSong.value=it
+            }
+        }
+    }
+
+    val musicBinder: MyPlayBackService.ServiceMusicController?
+        get() = controller?.get()
+
+    val playbackState=MutableLiveData<Int>()
+
+    val pendingSong=MutableLiveData<String>()
+
+    val focusSong=MutableLiveData<String>()
+}
+
+@ExperimentalCoroutinesApi
+@FlowPreview
 class MyPlayBackService : Service() {
 
+
+
     val musicController by lazy {
-        ServiceMusicController()
+        ServiceMusicController().also {
+            AppMusicUtil.controller= WeakReference(it)
+        }
     }
 
     val musicRepository by lazy {
@@ -58,6 +98,7 @@ class MyPlayBackService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        musicController.playbackState.value= COMPLETED
         mediaPlayer?.release()
         scope.cancel()
         musicController.songChannel.close()
@@ -124,8 +165,19 @@ class MyPlayBackService : Service() {
 
     class MusicRepository() {
         val data
-            get() = mutableListOf("http://m801.music.126.net/20210331211617/a816f7d8088c3885e4da53c671152bfc/jdymusic/obj/w5zDlMODwrDDiGjCn8Ky/2234478436/ea74/268b/d0b0/35427f829b28d425340b3d6b8db8030a.mp3",
+            get() = mutableListOf("http://isure.stream.qqmusic.qq.com/C400003zDTau0boSQm.m4a?guid=2958323637&vkey=72B5A322351DCFB5B1FF4C3013479DF80E8EC61E196DB7C407BA21BCAA529E820A940220AECBBA553F67118D1805A16579C01AE30C2291D0&uin=3203891186&fromtag=66",
                 "http://m701.music.126.net/20210331211701/add5c3fd6f323a2d2b0e8e7f751fa20a/jdymusic/obj/wo3DlMOGwrbDjj7DisKw/4959745806/482a/1a84/ca27/02c0f32c8c1b78a97988cebbee2ede1b.mp3")
+    }
+
+
+    companion object{
+        //not playing idle
+        val INIT=0 //created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
+        val PLAYING = 1
+        val COMPLETED = 2 //idle
+        val PAUSED = 3
+        val PREPARING=5
+
     }
 
     @ExperimentalCoroutinesApi
@@ -134,19 +186,12 @@ class MyPlayBackService : Service() {
         get() = this@MyPlayBackService.musicRepository
 
 
-        //not playing idle
-        val INIT=0 //created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
-        val PLAYING = 1
-        val COMPLETED = 2 //idle
-        val PAUSED = 3
-        val PREPARING=5
-
         val playbackState = MutableLiveData<Int>().apply { value = INIT }
 
         //todo restore last play
         val pendingSong = MutableLiveData<String>().apply { value = musicRepository.data[0] }
 
-        val currentProcessingSong = MutableLiveData<String>()
+        val currentProcessingSong = MutableLiveData<String?>()
 
 
         val musicData = MutableLiveData<List<String>>().apply {
@@ -171,11 +216,15 @@ class MyPlayBackService : Service() {
 
         val songFocus=MutableLiveData<String>()
 
+        val TAG="music controller"
+
 
 
         //播放音乐 或者 暂停音乐
         fun handleSongClick(song:String){
-            val  hasSong=songChannel.valueOrNull!=null
+
+            Log.e(TAG, "handleSongClick: ", )
+            val  hasSong= !songChannel.valueOrNull.isNullOrEmpty()
             if(mediaPlayer!!.isPlaying && hasSong){  //playing
                 if(song.equals(songChannel.value)){
                     //pause
@@ -194,7 +243,7 @@ class MyPlayBackService : Service() {
                 return
             }else{
                 // has song
-                if(playbackState.value==PAUSED){
+                if(playbackState.value==PAUSED && song.equals(songChannel.valueOrNull!!)){
                     songFocus.value=song
                     playbackState.value=PLAYING
                     mediaPlayer!!.start()
@@ -211,6 +260,7 @@ class MyPlayBackService : Service() {
         //重置播放器，播放一首歌曲
         fun playFormStart(song: String) {
             playbackState.value=PREPARING
+            songFocus.value=song
             pendingSong.value= song
             showNotification(song) //update
             currentProcessingSong.value = song
