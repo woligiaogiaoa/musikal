@@ -19,7 +19,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.MutableLiveData
-import com.airbnb.epoxy.preload.PreloadRequestHolder
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.*
@@ -108,7 +107,7 @@ class MyPlayBackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.getStringExtra("id")?.also {
             if(!it.isEmpty() ){
-                musicController.handleSongClick(it)
+                musicController.playPauseOrPlayANew(it)
             }
         }
         return super.onStartCommand(intent, flags, startId)
@@ -158,7 +157,7 @@ class MyPlayBackService : Service() {
                             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ->{} //musicController.pause()
                         }
                     }.build()
-            if (false) {
+            if (true) {
                 audioManager.requestAudioFocus(audioFocusRequest)
             }
         }
@@ -238,10 +237,33 @@ class MyPlayBackService : Service() {
 
         val TAG="music controller"
 
+        val songInChannel
+        get() = songChannel.valueOrNull
 
+        fun playIfNotPlay(song:String){
+            if(mediaPlayer!!.isPlaying ){
+                if(song.equals(songChannel.valueOrNull!!)){
+                    return
+                }else{
+                    playPauseOrPlayANew(song)
+                }
+            }
+            else{ //not playing
+                if(playbackState.value == PAUSED){
+                    if(songInChannel!!.equals(song)){
+                        playPauseOrPlayANew(song)
+                    }else{
+                        playPauseOrPlayANew(song)
+                    }
+                }else{
+                    playPauseOrPlayANew(song)
+                }
+            }
 
-        //播放音乐 或者 暂停音乐
-        fun handleSongClick(song:String){
+        }
+
+        //change State
+        fun playPauseOrPlayANew(song:String){
 
             Log.e(TAG, "handleSongClick: ", )
             val  hasSong= !songChannel.valueOrNull.isNullOrEmpty()

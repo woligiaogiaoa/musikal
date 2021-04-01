@@ -10,6 +10,7 @@ import android.preference.PreferenceManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.databinding.DataBindingUtil
+import androidx.lifecycle.lifecycleScope
 import com.airbnb.epoxy.EpoxyRecyclerView
 import com.example.musicka.MyPlayBackService.Companion.COMPLETED
 import com.example.musicka.MyPlayBackService.Companion.INIT
@@ -20,6 +21,7 @@ import com.example.musicka.MyPlayBackService.Companion.RECENT
 import com.example.musicka.databinding.ActivityMisBinding
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.launch
 import org.intellij.lang.annotations.Flow
 
 @FlowPreview
@@ -55,6 +57,9 @@ class BindingActivity : AppCompatActivity() {
         override fun onServiceDisconnected(arg0: ComponentName) {
             mPlayBackService=null
             mBound = false
+            lifecycleScope.launch {
+
+            }
         }
     }
 
