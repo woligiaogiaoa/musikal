@@ -22,6 +22,7 @@
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/controller_view"
+            android:visibility="gone"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintBottom_toBottomOf="parent"

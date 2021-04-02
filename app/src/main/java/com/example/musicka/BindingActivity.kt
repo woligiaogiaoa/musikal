@@ -5,8 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
 import android.preference.PreferenceManager
+import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.databinding.DataBindingUtil
@@ -14,6 +16,8 @@ import androidx.lifecycle.lifecycleScope
 import com.airbnb.epoxy.EpoxyRecyclerView
 import com.example.musicka.MyPlayBackService.Companion.COMPLETED
 import com.example.musicka.MyPlayBackService.Companion.INIT
+import com.example.musicka.MyPlayBackService.Companion.NOTIFICATION_COMMAND_KEY
+import com.example.musicka.MyPlayBackService.Companion.NOTIFICATION_COMMANE_PLAY_PAUSE
 import com.example.musicka.MyPlayBackService.Companion.PAUSED
 import com.example.musicka.MyPlayBackService.Companion.PLAYING
 import com.example.musicka.MyPlayBackService.Companion.PREPARING
@@ -28,47 +32,11 @@ import org.intellij.lang.annotations.Flow
 @ExperimentalCoroutinesApi
 class BindingActivity : AppCompatActivity() {
 
-    var mPlayBackService: MyPlayBackService?=null
-
-    private var mBound: Boolean = false
-
-
-
-    val controller: MyPlayBackService.ServiceMusicController?
-        get() = AppMusicUtil.controller?.get()
-
-
-    var songs:List<String>?= emptyList()
-
-    /** Defines callbacks for service binding, passed to bindService()  */
-    @ExperimentalCoroutinesApi
-    private val connection = object : ServiceConnection {
-
-        override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            // We've bound to LocalService, cast the IBinder and get LocalService instance
-            val binder = service as MyPlayBackService.ServiceMusicController
-            mPlayBackService = binder.getService()
-            if(songs.isNullOrEmpty())
-            songs= controller!!.musicData.value!!
-            updateUi(songs!!)
-            mBound = true
-        }
-
-        override fun onServiceDisconnected(arg0: ComponentName) {
-            mPlayBackService=null
-            mBound = false
-            lifecycleScope.launch {
-
-            }
-        }
-    }
-
     val rv: EpoxyRecyclerView
         get() = findViewById<EpoxyRecyclerView>(R.id.rv)
 
     val data
-        get() = mutableListOf("http://isure.stream.qqmusic.qq.com/C400003zDTau0boSQm.m4a?guid=2958323637&vkey=72B5A322351DCFB5B1FF4C3013479DF80E8EC61E196DB7C407BA21BCAA529E820A940220AECBBA553F67118D1805A16579C01AE30C2291D0&uin=3203891186&fromtag=66",
-            "http://isure.stream.qqmusic.qq.com/C400000eMCTT1akCEg.m4a?guid=2958323637&vkey=9535B6CB21D053C2DCDC999804248BAD8BF1FC0716D7630476869D56128E56C5F0F42076FB9B186A18DDF3013490DDDD5248B35B645771EE&uin=3203891186&fromtag=66")
+        get() =MusicRepository().data
 
     private fun updateUi(songs: List<String>) {
         rv.withModels {
@@ -95,14 +63,17 @@ class BindingActivity : AppCompatActivity() {
     }
 
 
-    fun ensureBind()=mBound
 
 
     lateinit var binding :ActivityMisBinding
 
-    val sp get() = PreferenceManager.getDefaultSharedPreferences(this)
+    val TAG="music activity"
+
+    val sp get() = PreferenceManager.getDefaultSharedPreferences(MyApp.app)
 
     val recent get() = sp.getString(RECENT,"")
+
+    fun goneControllerview(){binding.controllerView.isVisible=false;Log.e(TAG, "goneControllerview: ", )}
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,12 +84,14 @@ class BindingActivity : AppCompatActivity() {
         AppMusicUtil.playbackState.observe(this) {
             when (it) {
                 //not playing idle
-                INIT -> {
-                    AppMusicUtil.pendingSong.value?.also {
-                        binding.controllerView.isVisible=true
-                        binding.tvSong.text=it
-                    }
-                    binding.playPause.setImageResource(R.mipmap.play)
+                INIT -> { //ready to play
+                        AppMusicUtil.pendingSong.value?.also {
+                            binding.controllerView.isVisible = true
+                            binding.tvSong.text = it
+                            Log.e(TAG, "visibleControllerview", )
+                        } ?: goneControllerview()
+                        binding.playPause.setImageResource(R.mipmap.play)
+
                 }//created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
                 PLAYING -> {
                     AppMusicUtil.focusSong.value?.also {
@@ -159,6 +132,20 @@ class BindingActivity : AppCompatActivity() {
         }
 
 
+
+        Intent(this@BindingActivity,MyPlayBackService::class.java).also {
+            //just start it
+            startService(it)
+        }
+       /* AppMusicUtil.pendingSong.value?.also {
+            AppMusicUtil.pendingSong.value!!.also {
+                binding.tvSong.text=it
+                binding.controllerView.isVisible=true
+            }
+            binding.playPause.setImageResource(R.mipmap.play)
+        }*/
+
+/*
         if(AppMusicUtil.pendingSong.value!=null && AppMusicUtil.pendingSong.value!!.equals(recent)){
             AppMusicUtil.pendingSong.value?.also {
                 AppMusicUtil.pendingSong.value?.also {
@@ -168,7 +155,7 @@ class BindingActivity : AppCompatActivity() {
         }
         else{
 
-            fun goneControllerview(){binding.controllerView.isVisible=false}
+
 
             if(recent.isNullOrEmpty()){
                 goneControllerview()
@@ -176,11 +163,11 @@ class BindingActivity : AppCompatActivity() {
                 binding.controllerView.isVisible=true
                 binding.tvSong.text=recent
             }
-        }
+        }*/
 
 
         binding.playPause.setOnClickListener {
-            AppMusicUtil.focusSong.value?.also { s  ->
+          /*  AppMusicUtil.focusSong.value?.also { s  ->
                 Intent(this@BindingActivity,MyPlayBackService::class.java).also {
                     it.putExtra("id",s)
                     startService(it)
@@ -195,29 +182,13 @@ class BindingActivity : AppCompatActivity() {
                     startService(it)
                 }
                 return@setOnClickListener
-            }
-
+            }*/
             Intent(this@BindingActivity,MyPlayBackService::class.java).also {
-                it.putExtra("id",recent)
+                it.putExtra(NOTIFICATION_COMMAND_KEY, NOTIFICATION_COMMANE_PLAY_PAUSE)
                 startService(it)
             }
         }
 
-    }
-
-    override fun onStart() {
-        super.onStart()
-        // Bind to LocalService
-       /* Intent(this, MyPlayBackService::class.java).also { intent ->
-            bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        }*/
-    }
-
-    override fun onStop() {
-        super.onStop()
-        //unbindService(connection)
-        mPlayBackService=null
-        mBound = false
     }
 
 }

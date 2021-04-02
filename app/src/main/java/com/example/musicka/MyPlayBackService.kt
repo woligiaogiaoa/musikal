@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.IBinder
 import android.preference.PreferenceManager
 import android.util.Log
+import android.widget.RemoteViews
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -22,9 +23,16 @@ import androidx.lifecycle.MutableLiveData
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ConflatedBroadcastChannel
 import kotlinx.coroutines.flow.*
-import java.lang.Exception
 import java.lang.ref.WeakReference
 import kotlin.coroutines.resume
+
+
+class MusicRepository() {
+    val data
+        get() =
+            mutableListOf("http://ws.stream.qqmusic.qq.com/C400004LZwE13k5hzj.m4a?guid=2958323637&vkey=767181E15616AB13060ACEC13C83D7F76A73B839C12CB85CACD86CB1B7B42C4B71EA4F48792C24B46A2E1BF2693B839D86083A170FE4522B&uin=&fromtag=66",
+                    "http://ws.stream.qqmusic.qq.com/C4000048kEIo4SEMnw.m4a?guid=2958323637&vkey=C0990539DB023CEDC80E7270BF59D044D36EDBECB75C352DD9E6B85C6F63DD7EBF89CEECD3B0942548BBEEDA60F2142C6B76E27F6F99BB13&uin=&fromtag=66")
+}
 
 
 const val CHANNEL_ID = "jsn Music Channel Id" // 通知通道 ID
@@ -38,11 +46,11 @@ object AppMusicUtil{
     set(value) {
         field=value
         value?.also {
-            it.get()!!.playbackState.observeForever {
-                playbackState.value=it
-            }
             it.get()!!.pendingSong.observeForever {
                 pendingSong.value=it
+            }
+            it.get()!!.playbackState.observeForever {
+                playbackState.value=it
             }
             it.get()!!.songFocus.observeForever {
                 focusSong.value=it
@@ -50,30 +58,24 @@ object AppMusicUtil{
         }
     }
 
-    val musicBinder: MyPlayBackService.ServiceMusicController?
-        get() = controller?.get()
-
     val playbackState=MutableLiveData<Int>()
 
-    val pendingSong=MutableLiveData<String>()
+    val pendingSong=MutableLiveData<String?>()
 
     val focusSong=MutableLiveData<String>() //channel song
 }
 
+@Suppress("DEPRECATION")
 @ExperimentalCoroutinesApi
 @FlowPreview
 class MyPlayBackService : Service() {
 
 
-    val musicController by lazy {
-        ServiceMusicController().also {
+    val musicController= ServiceMusicController().also {
             AppMusicUtil.controller= WeakReference(it)
         }
-    }
 
-    val musicRepository by lazy {
-        MusicRepository()
-    }
+
     /* 通知管理 */
     private var notificationManager: NotificationManager? = null
 
@@ -90,14 +92,22 @@ class MyPlayBackService : Service() {
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager // 通知管理
-        //updateNotification(false)
         initChannel()
         initAudioFocus()
+        musicController.lauchSongFlow()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+
         musicController.playbackState.value= COMPLETED
+
+
+        musicController.songFocus.value?.also{
+            musicController.pendingSong.value=it //recent play
+        }
+
+
         musicController.songFocus.value=null
         mediaPlayer?.release()
         scope.cancel()
@@ -105,12 +115,27 @@ class MyPlayBackService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.getStringExtra("id")?.also {
+
+        intent?.getStringExtra("id")?.also {   //A NEW SONG CLICK FROM OTHER UI 比如歌单
             if(!it.isEmpty() ){
-                musicController.playPauseOrPlayANew(it)
+                musicController.playThisSongOrPauseItIfPlaying(it)
             }
         }
-        return super.onStartCommand(intent, flags, startId)
+
+        intent?.getStringExtra(NOTIFICATION_COMMAND_KEY)?.also {   //通知点击 play pause
+            if(it.equals(NOTIFICATION_COMMANE_PLAY_PAUSE) ){
+                if(musicController.songFocus.value!=null){
+                    musicController.playThisSongOrPauseItIfPlaying(musicController.songFocus.value!!)
+                    return@also
+                }
+                if(musicController.pendingSong.value!=null){
+                    musicController.playThisSongOrPauseItIfPlaying(musicController.pendingSong.value!!)
+                    return@also
+                }
+            }
+        }
+
+        return START_NOT_STICKY
     }
 
     fun initChannel() {
@@ -153,8 +178,10 @@ class MyPlayBackService : Service() {
                                 // audioManager.abandonAudioFocusRequest(audioFocusRequest)
                                 //musicController.pause()
                             }
-                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ->{} //musicController.pause()
-                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ->{} //musicController.pause()
+                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                            } //musicController.pause()
+                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                            } //musicController.pause()
                         }
                     }.build()
             if (true) {
@@ -163,14 +190,12 @@ class MyPlayBackService : Service() {
         }
     }
 
-    class MusicRepository() {
-        val data
-            get() = mutableListOf("http://isure.stream.qqmusic.qq.com/C400003zDTau0boSQm.m4a?guid=2958323637&vkey=72B5A322351DCFB5B1FF4C3013479DF80E8EC61E196DB7C407BA21BCAA529E820A940220AECBBA553F67118D1805A16579C01AE30C2291D0&uin=3203891186&fromtag=66",
-                "http://m701.music.126.net/20210331211701/add5c3fd6f323a2d2b0e8e7f751fa20a/jdymusic/obj/wo3DlMOGwrbDjj7DisKw/4959745806/482a/1a84/ca27/02c0f32c8c1b78a97988cebbee2ede1b.mp3")
-    }
+
 
 
     companion object{
+
+        /*-------------------PLAY STATE -0----------------*/
         //not playing idle
         val INIT=0 //created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
         val PLAYING = 1
@@ -178,11 +203,20 @@ class MyPlayBackService : Service() {
         val PAUSED = 3
         val PREPARING=5
 
+        /*--------------COMMAND CODE FOR NOTIFICATION--------------*/
+        //CODE_KEY
+        val NOTIFICATION_COMMAND_KEY="COMMAND"
+        val NOTIFICATION_COMMANE_PLAY_PAUSE="PLAY_PAUSE"
 
+
+
+
+        /*--------------------PLAY MODE----------------*/
         /*REPEAT*/
         val REAPEAT=6
 
 
+        /*--------------PERSISTENT DATA KEY------------------ */
         /*RECENT PLAY*/
         val RECENT="RECENT_SONG"
 
@@ -191,33 +225,25 @@ class MyPlayBackService : Service() {
 
 
     @ExperimentalCoroutinesApi
-    inner class ServiceMusicController : Binder() {
+    inner class
+    ServiceMusicController : Binder() {
 
         val mode= REAPEAT
 
-        val musicRepository
-        get() = this@MyPlayBackService.musicRepository
+        val sp = PreferenceManager.getDefaultSharedPreferences(MyApp.app)
 
-        val sp by lazy {
-            PreferenceManager.getDefaultSharedPreferences(this@MyPlayBackService)
-        }
 
+        //todo restore last play
+        val pendingSong = MutableLiveData<String?>().apply { value=sp.getString(RECENT, null) }
 
         val playbackState = MutableLiveData<Int>().apply { value = INIT }
 
-        //todo restore last play
-        val pendingSong = MutableLiveData<String?>().apply { sp.getString(RECENT,"") }
-
-        fun saveRecent(s:String)=sp.edit { putString(RECENT,s) }
+        fun saveRecent(s: String)=sp.edit { putString(RECENT, s) }
 
         val currentProcessingSong = MutableLiveData<String?>()
 
 
-        val musicData = MutableLiveData<List<String>>().apply {
-            value = musicRepository.data
-        }
 
-        fun getService()=this@MyPlayBackService
 
         val scope
             get() = this@MyPlayBackService.scope
@@ -240,38 +266,39 @@ class MyPlayBackService : Service() {
         val songInChannel
         get() = songChannel.valueOrNull
 
-        fun playIfNotPlay(song:String){
+        fun playIfNotPlay(song: String){
             if(mediaPlayer!!.isPlaying ){
                 if(song.equals(songChannel.valueOrNull!!)){
                     return
                 }else{
-                    playPauseOrPlayANew(song)
+                    playThisSongOrPauseItIfPlaying(song)
                 }
             }
             else{ //not playing
                 if(playbackState.value == PAUSED){
                     if(songInChannel!!.equals(song)){
-                        playPauseOrPlayANew(song)
+                        playThisSongOrPauseItIfPlaying(song)
                     }else{
-                        playPauseOrPlayANew(song)
+                        playThisSongOrPauseItIfPlaying(song)
                     }
                 }else{
-                    playPauseOrPlayANew(song)
+                    playThisSongOrPauseItIfPlaying(song)
                 }
             }
 
         }
 
         //change State
-        fun playPauseOrPlayANew(song:String){
+        fun playThisSongOrPauseItIfPlaying(song: String){
 
-            Log.e(TAG, "handleSongClick: ", )
+            Log.e(TAG, "handleSongClick: ")
             val  hasSong= !songChannel.valueOrNull.isNullOrEmpty()
             if(mediaPlayer!!.isPlaying && hasSong){  //playing
                 if(song.equals(songChannel.value)){
                     //pause
                     playbackState.value=PAUSED
                     songFocus.value=song
+                    pendingSong.value=song
                     mediaPlayer!!.pause()
                     updateNotification(song, PAUSED)
                     return
@@ -283,19 +310,27 @@ class MyPlayBackService : Service() {
             else if(!hasSong){
                 playFormStart(song)
                 songFocus.value=song
+                pendingSong.value=song
                 return
             }else{
-                // has song
+                // has song not playing
                 if(playbackState.value==PAUSED && song.equals(songChannel.valueOrNull!!)){
                     songFocus.value=song
+                    pendingSong.value=song
                     playbackState.value=PLAYING
                     updateNotification(song, PLAYING)
                     mediaPlayer!!.start()
                     return
                 }
                 else{
-                    playFormStart(song)
-                    songFocus.value=song
+                    if(playbackState.value== PREPARING){
+                        return
+                    }else{
+                        playFormStart(song)
+                        songFocus.value=song
+                        pendingSong.value=song
+                    }
+
                 }
             }
         }
@@ -330,6 +365,7 @@ class MyPlayBackService : Service() {
         val completeListener=object :OnCompletionListener{
             override fun onCompletion(mp: MediaPlayer?) {
                 playbackState.value = COMPLETED //error accur or completed
+                updateNotification(songFocus.value!!, playbackState.value!!)
                 currentProcessingSong.value = null
                 songChannel.valueOrNull ?: return
                 (songChannel.valueOrNull!!).also {
@@ -357,7 +393,7 @@ class MyPlayBackService : Service() {
             false
         }
 
-        init {
+        fun lauchSongFlow() {
 
             scope.launch {
                 songFlow.collect {
@@ -383,7 +419,7 @@ class MyPlayBackService : Service() {
                     cont.resume(song)
                 }
                 setOnCompletionListener(completeListener)
-                setOnErrorListener (error)
+                setOnErrorListener(error)
             }
         }
 
@@ -396,36 +432,71 @@ class MyPlayBackService : Service() {
         return PendingIntent.getActivity(this, 1, intentMain, PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
+
+
+
     /**
      * 显示通知
      */
-    private fun updateNotification(song: String?,state:Int) {
+    private fun updateNotification(song: String?, state: Int) {
 
-        Log.e("state", "updateNotification:${state}", )
-        val mipmap=ContextCompat.getDrawable(this@MyPlayBackService,if(state== PLAYING || state== PREPARING) R.mipmap.pause else R.mipmap.play )!!.toBitmap()
+        val active= (state== PLAYING || state== PREPARING)
 
-        val fromLyric=false
+        Log.e("state", "updateNotification:${state}")
+        val mipmap=ContextCompat.getDrawable(this@MyPlayBackService, if (state == PLAYING || state == PREPARING) R.mipmap.pause else R.mipmap.play)!!.toBitmap()
+
+        // Get the layouts to use in the custom notification
+        val notificationLayout = RemoteViews(packageName, R.layout.notification_small).apply {
+        }
+        val notificationLayoutExpanded = RemoteViews(packageName, R.layout.notification_large)
+
+// Apply the layouts to the notification
+        //val customNotification = NotificationCompat.Builder(context, CHANNEL_ID)
+                //.setSmallIcon(R.drawable.notification_icon)
+
+        fun getPlayIcon(): Int {
+            return if (active) {
+                R.drawable.pause
+            } else {
+                R.drawable.play
+            }
+        }
+         fun getPendingIntentPlay(): PendingIntent {
+            val intent = Intent(this, MyPlayBackService::class.java)
+            intent.putExtra(NOTIFICATION_COMMAND_KEY, NOTIFICATION_COMMANE_PLAY_PAUSE)
+            return PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID).apply {
             setSmallIcon(R.drawable.ic_launcher_background)
-            setLargeIcon(mipmap)
-            setContentTitle(song)
-            setContentText(song)
+                    setLargeIcon(mipmap)
+                    /*.setCustomContentView(notificationLayout)
+                            .addAction(getPlayIcon(), "play", getPendingIntentPlay())
+                    .setCustomBigContentView(notificationLayoutExpanded)*/
+            setContentTitle(musicController.songInChannel)
+            setContentText(musicController.songInChannel)
             setContentIntent(getPendingIntentActivity())
-            /*addAction(R.drawable.ic_baseline_skip_previous_24, "Previous", getPendingIntentPrevious())
+                    .build()
             addAction(getPlayIcon(), "play", getPendingIntentPlay())
-            addAction(R.drawable.ic_baseline_skip_next_24, "next", getPendingIntentNext())*/
-          /*  setStyle(
-                    androidx.media.app.NotificationCompat.MediaStyle()
-                            .setMediaSession(mediaSession?.sessionToken)
-                            .setShowActionsInCompactView(0, 1, 2)
-            )*/
+            /*  setStyle(
+                      androidx.media.app.NotificationCompat.MediaStyle()
+                              .setMediaSession(mediaSession?.sessionToken)
+                              .setShowActionsInCompactView(0, 1, 2)
+              )*/
             setOngoing(true)
-         /*   if (getCurrentLineLyricEntry()?.text != null && fromLyric && musicController.statusBarLyric) {
-                setTicker(getCurrentLineLyricEntry()?.text) // 魅族状态栏歌词的实现方法
-            }*/
-            // .setAutoCancel(true)
+
         }.build()
-        startForeground(START_FOREGROUND_ID, notification)
+
+
+        if(active){
+            startForeground(START_FOREGROUND_ID, notification)
+        }else{
+            //startForeground(START_FOREGROUND_ID, notification)
+                notificationManager?.notify(START_FOREGROUND_ID, notification)
+            stopForeground(false)
+        }
+
     }
 
 
@@ -465,3 +536,4 @@ const val START_FOREGROUND_ID = 10 // 开启前台服务的 ID
             Result.Loading -> null
         }
     }
+
