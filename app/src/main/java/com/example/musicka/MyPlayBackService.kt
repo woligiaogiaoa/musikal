@@ -309,9 +309,20 @@ class MyPlayBackService : Service() {
             val percent=percent.toFloat()
             if(isActive) mediaPlayer!!.seekTo((percent*mediaPlayer!!.duration).toInt().also {
                 Log.e(TAG, "seekto: $it", )
-            })
-            mediaPlayer?.start()
-            playbackState.value= PLAYING
+                mediaPlayer?.start()
+                playbackState.value= PLAYING
+            })else if(playbackState.value== PREPARING){
+                return
+            }else if(playbackState.value== INIT){
+                if(pendingSong.value!=null)
+                playThisSongOrPauseItIfPlaying(pendingSong.value!!)
+            }
+            else if (playbackState.value== COMPLETED){
+                if(songFocus.value!=null)
+                    playThisSongOrPauseItIfPlaying(songFocus.value!!)
+            }else{
+                return
+            }
         }
 
         //change State
