@@ -126,8 +126,7 @@ class MyPlayBackService : Service() {
                 musicController.playThisSongOrPauseItIfPlaying(it)
             }
         }
-
-
+        
         intent?.getStringExtra(SEEK_POSITION_DATA_KEY)?.also {   //seekto
             if(!it.isEmpty() ){
                 musicController.seekto(it)
@@ -303,11 +302,16 @@ class MyPlayBackService : Service() {
 
         }
 
-        val isActive=playbackState.value == PLAYING || playbackState.value== PAUSED
+        val isActive
+        get() = playbackState.value == PLAYING || playbackState.value== PAUSED
 
         fun seekto(percent:String){
             val percent=percent.toFloat()
-            if(isActive) mediaPlayer!!.seekTo((percent*mediaPlayer!!.duration).toInt())
+            if(isActive) mediaPlayer!!.seekTo((percent*mediaPlayer!!.duration).toInt().also {
+                Log.e(TAG, "seekto: $it", )
+            })
+            mediaPlayer?.start()
+            playbackState.value= PLAYING
         }
 
         //change State

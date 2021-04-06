@@ -131,7 +131,15 @@ class BindingActivity : AppCompatActivity() {
         }
 
         binding.pb.setOnSeekBarChangeListener(object :SeekBar.OnSeekBarChangeListener{
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if(fromUser) {
+                    val percent=seekBar.progress.toFloat() / seekBar.max
+                    Intent(this@BindingActivity, MyPlayBackService::class.java).also {
+                        it.putExtra(SEEK_POSITION_DATA_KEY, percent.toString())
+                        startService(it)
+                    }
+                }
 
             }
 
@@ -140,11 +148,7 @@ class BindingActivity : AppCompatActivity() {
             }
 
             override fun onStopTrackingTouch(seekBar: SeekBar) {
-                val percent=seekBar.progress.toFloat() / seekBar.max
-                Intent(this@BindingActivity, MyPlayBackService::class.java).also {
-                    it.putExtra(SEEK_POSITION_DATA_KEY, percent.toString())
-                    startService(it)
-                }
+
             }
         })
 
