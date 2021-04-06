@@ -1,18 +1,13 @@
 package com.example.musicka
 
-import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.os.Bundle
-import android.os.Handler
-import android.os.IBinder
 import android.preference.PreferenceManager
 import android.util.Log
+import android.widget.SeekBar
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.databinding.DataBindingUtil
-import androidx.lifecycle.lifecycleScope
 import com.airbnb.epoxy.EpoxyRecyclerView
 import com.example.musicka.MyPlayBackService.Companion.COMPLETED
 import com.example.musicka.MyPlayBackService.Companion.INIT
@@ -22,11 +17,10 @@ import com.example.musicka.MyPlayBackService.Companion.PAUSED
 import com.example.musicka.MyPlayBackService.Companion.PLAYING
 import com.example.musicka.MyPlayBackService.Companion.PREPARING
 import com.example.musicka.MyPlayBackService.Companion.RECENT
+import com.example.musicka.MyPlayBackService.Companion.SEEK_POSITION_DATA_KEY
 import com.example.musicka.databinding.ActivityMisBinding
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.launch
-import org.intellij.lang.annotations.Flow
 
 @FlowPreview
 @ExperimentalCoroutinesApi
@@ -50,8 +44,8 @@ class BindingActivity : AppCompatActivity() {
                            /* Intent(this, MyPlayBackService::class.java).also { intent ->
                                 startService(intent)
                             }*/
-                            Intent(this@BindingActivity,MyPlayBackService::class.java).also {
-                                it.putExtra("id",s)
+                            Intent(this@BindingActivity, MyPlayBackService::class.java).also {
+                                it.putExtra("id", s)
                                 startService(it)
                             }
                         }
@@ -71,9 +65,9 @@ class BindingActivity : AppCompatActivity() {
 
     val sp get() = PreferenceManager.getDefaultSharedPreferences(MyApp.app)
 
-    val recent get() = sp.getString(RECENT,"")
+    val recent get() = sp.getString(RECENT, "")
 
-    fun goneControllerview(){binding.controllerView.isVisible=false;Log.e(TAG, "goneControllerview: ", )}
+    fun goneControllerview(){binding.controllerView.isVisible=false;Log.e(TAG, "goneControllerview: ")}
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,43 +79,43 @@ class BindingActivity : AppCompatActivity() {
             when (it) {
                 //not playing idle
                 INIT -> { //ready to play
-                        AppMusicUtil.pendingSong.value?.also {
-                            binding.controllerView.isVisible = true
-                            binding.tvSong.text = it
-                            Log.e(TAG, "visibleControllerview", )
-                        } ?: goneControllerview()
-                        binding.playPause.setImageResource(R.mipmap.play)
+                    AppMusicUtil.pendingSong.value?.also {
+                        binding.controllerView.isVisible = true
+                        binding.tvSong.text = it
+                        Log.e(TAG, "visibleControllerview")
+                    } ?: goneControllerview()
+                    binding.playPause.setImageResource(R.mipmap.play)
 
                 }//created ,nothing playing , init ->  preparing -> playing ->pause ->playing ->completed
                 PLAYING -> {
                     AppMusicUtil.focusSong.value?.also {
-                        binding.controllerView.isVisible=true
-                        binding.tvSong.text=it
+                        binding.controllerView.isVisible = true
+                        binding.tvSong.text = it
                     }
                     binding.playPause.setImageResource(R.mipmap.pause)
                 }
                 COMPLETED -> {
                     AppMusicUtil.pendingSong.value?.also {
-                        binding.controllerView.isVisible=true
-                        binding.tvSong.text=it
+                        binding.controllerView.isVisible = true
+                        binding.tvSong.text = it
                     }
                     AppMusicUtil.focusSong.value?.also {
-                        binding.controllerView.isVisible=true
-                        binding.tvSong.text=it
+                        binding.controllerView.isVisible = true
+                        binding.tvSong.text = it
                     }
                     binding.playPause.setImageResource(R.mipmap.play)
                 } //idle
                 PAUSED -> {
                     AppMusicUtil.focusSong.value?.also {
-                        binding.controllerView.isVisible=true
-                        binding.tvSong.text=it
+                        binding.controllerView.isVisible = true
+                        binding.tvSong.text = it
                     }
                     binding.playPause.setImageResource(R.mipmap.play)
                 }
                 PREPARING -> {
                     AppMusicUtil.focusSong.value!!.also {
-                        binding.tvSong.text=it
-                        binding.controllerView.isVisible=true
+                        binding.tvSong.text = it
+                        binding.controllerView.isVisible = true
                     }
                     binding.playPause.setImageResource(R.mipmap.pause)
                 }
@@ -131,9 +125,31 @@ class BindingActivity : AppCompatActivity() {
             }
         }
 
+        AppMusicUtil.songProgress.observe(this){ percent ->
+            val progressBar=binding.pb
+            progressBar.setProgress((percent * progressBar.getMax()).toInt())
+        }
+
+        binding.pb.setOnSeekBarChangeListener(object :SeekBar.OnSeekBarChangeListener{
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) {
+                val percent=seekBar.progress.toFloat() / seekBar.max
+                Intent(this@BindingActivity, MyPlayBackService::class.java).also {
+                    it.putExtra(SEEK_POSITION_DATA_KEY, percent.toString())
+                    startService(it)
+                }
+            }
+        })
 
 
-        Intent(this@BindingActivity,MyPlayBackService::class.java).also {
+        Intent(this@BindingActivity, MyPlayBackService::class.java).also {
             //just start it
             startService(it)
         }
@@ -183,7 +199,7 @@ class BindingActivity : AppCompatActivity() {
                 }
                 return@setOnClickListener
             }*/
-            Intent(this@BindingActivity,MyPlayBackService::class.java).also {
+            Intent(this@BindingActivity, MyPlayBackService::class.java).also {
                 it.putExtra(NOTIFICATION_COMMAND_KEY, NOTIFICATION_COMMANE_PLAY_PAUSE)
                 startService(it)
             }

@@ -22,7 +22,6 @@
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/controller_view"
-            android:visibility="gone"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintBottom_toBottomOf="parent"
@@ -44,18 +43,30 @@
 
             <TextView
                 android:id="@+id/tv_song"
-                android:padding="15dp"
+                android:paddingTop="10dp"
                 android:layout_marginEnd="20dp"
                 android:layout_marginStart="20dp"
                 android:singleLine="true"
                 android:ellipsize="marquee"
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toStartOf="@id/play_pause"
                 tools:text="asdasdasdadasdasdasdsadasdasdsadsadasasdsadsaddasdsadsadasdadadadadadas"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content" />
+
+            <SeekBar
+                android:layout_width="0dp"
+                android:id="@+id/pb"
+                android:max="10000"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/play_pause"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_height="wrap_content"
+                app:layout_constraintBottom_toBottomOf="parent"
+                android:layout_marginHorizontal="15dp"
+                android:paddingVertical="10dp"
+                />
 
 
 

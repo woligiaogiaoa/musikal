@@ -30,8 +30,8 @@ import kotlin.coroutines.resume
 class MusicRepository() {
     val data
         get() =
-            mutableListOf("http://ws.stream.qqmusic.qq.com/C400004LZwE13k5hzj.m4a?guid=2958323637&vkey=767181E15616AB13060ACEC13C83D7F76A73B839C12CB85CACD86CB1B7B42C4B71EA4F48792C24B46A2E1BF2693B839D86083A170FE4522B&uin=&fromtag=66",
-                    "http://ws.stream.qqmusic.qq.com/C4000048kEIo4SEMnw.m4a?guid=2958323637&vkey=C0990539DB023CEDC80E7270BF59D044D36EDBECB75C352DD9E6B85C6F63DD7EBF89CEECD3B0942548BBEEDA60F2142C6B76E27F6F99BB13&uin=&fromtag=66")
+            mutableListOf("http://isure.stream.qqmusic.qq.com/C400000eMCTT1akCEg.m4a?guid=2958323637&vkey=E1DE81B861F2F25D50F4D5E38BF13E9E4C54A64D3BA6932B78833BADB389413603091FE41C24EACFF7F5D044BEBFF5D6C9EDF6D6BCB5D067&uin=3203891186&fromtag=66",
+            "http://isure.stream.qqmusic.qq.com/C4000048kEIo4SEMnw.m4a?guid=2958323637&vkey=EEC48A32D4931052B5E11B3EF15C00A9BE78B44E78954B3C1C141DD5C82ABE7D03BBDACEDE7CE17EA908123CECA32A8FEF856206A2331741&uin=3203891186&fromtag=66")
 }
 
 
@@ -55,10 +55,14 @@ object AppMusicUtil{
             it.get()!!.songFocus.observeForever {
                 focusSong.value=it
             }
+            it.get()!!.songProgress.observeForever {
+                songProgress.value=it
+            }
         }
     }
 
     val playbackState=MutableLiveData<Int>()
+    val songProgress=MutableLiveData<Float>()
 
     val pendingSong=MutableLiveData<String?>()
 
@@ -109,6 +113,7 @@ class MyPlayBackService : Service() {
 
 
         musicController.songFocus.value=null
+        musicController.songProgress.value=0f
         mediaPlayer?.release()
         scope.cancel()
         musicController.songChannel.close()
@@ -119,6 +124,13 @@ class MyPlayBackService : Service() {
         intent?.getStringExtra("id")?.also {   //A NEW SONG CLICK FROM OTHER UI 比如歌单
             if(!it.isEmpty() ){
                 musicController.playThisSongOrPauseItIfPlaying(it)
+            }
+        }
+
+
+        intent?.getStringExtra(SEEK_POSITION_DATA_KEY)?.also {   //seekto
+            if(!it.isEmpty() ){
+                musicController.seekto(it)
             }
         }
 
@@ -208,6 +220,9 @@ class MyPlayBackService : Service() {
         val NOTIFICATION_COMMAND_KEY="COMMAND"
         val NOTIFICATION_COMMANE_PLAY_PAUSE="PLAY_PAUSE"
 
+        val SEEK_POSITION_DATA_KEY="SEEK_POSITION_DATA_KEY"
+
+
 
 
 
@@ -288,6 +303,13 @@ class MyPlayBackService : Service() {
 
         }
 
+        val isActive=playbackState.value == PLAYING || playbackState.value== PAUSED
+
+        fun seekto(percent:String){
+            val percent=percent.toFloat()
+            if(isActive) mediaPlayer!!.seekTo((percent*mediaPlayer!!.duration).toInt())
+        }
+
         //change State
         fun playThisSongOrPauseItIfPlaying(song: String){
 
@@ -337,8 +359,12 @@ class MyPlayBackService : Service() {
 
         var isError=false
 
+        var job:Job?=null
+
+        val songProgress=MutableLiveData<Float>().apply { value=0f }
 
         fun playFormStart(song: String) {
+            queryProgress()
             isError=false
             songFocus.value=song
             playbackState.value=PREPARING
@@ -347,6 +373,32 @@ class MyPlayBackService : Service() {
             pendingSong.value= song.also { saveRecent(it) }
             currentProcessingSong.value = song
             songChannel.offer(song)
+        }
+
+        private fun queryProgress() {
+            job = scope.launch {
+                try {
+                    while (true) {
+                        ensureActive()
+                        delay(80)
+                        var progress=0f
+                        if(playbackState.value== COMPLETED){
+                            if(isError) progress=0f
+                            else progress=1f
+                        }
+                        if(playbackState.value== PREPARING) progress=0f
+
+                        if(playbackState.value==PLAYING || playbackState.value== PAUSED){
+                            progress=mediaPlayer!!.currentPosition.toFloat() / mediaPlayer!!.duration
+                        }
+                        updateNotification(songFocus.value,playbackState.value!!,progress)
+                        songProgress.value=progress
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "queryProgress: ${e.message}", )
+                }
+
+            }
         }
 
         fun pause() {
@@ -372,6 +424,7 @@ class MyPlayBackService : Service() {
                     pendingSong.value = it //未播放的时候使用
                    saveRecent(it)
                 }
+                job?.cancel()
                 if(!isError){
                     if(mode== REAPEAT){
                         playFormStart(songChannel.valueOrNull!!)
@@ -427,6 +480,8 @@ class MyPlayBackService : Service() {
     }
 
 
+
+
     private fun getPendingIntentActivity(): PendingIntent {
         val intentMain = Intent(this, BindingActivity::class.java)
         return PendingIntent.getActivity(this, 1, intentMain, PendingIntent.FLAG_UPDATE_CURRENT)
@@ -438,7 +493,7 @@ class MyPlayBackService : Service() {
     /**
      * 显示通知
      */
-    private fun updateNotification(song: String?, state: Int) {
+    private fun updateNotification(song: String?, state: Int,progress:Float?=0f) {
 
         val active= (state== PLAYING || state== PREPARING)
 
