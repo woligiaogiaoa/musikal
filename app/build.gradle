@@ -44,6 +44,8 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.3.1"
 
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.3.1"
+    implementation project(path: ':library')
+    implementation project(path: ':mylibrary')
 
     //epoxy
     def epoxyVersion="4.3.1"

@@ -116,6 +116,7 @@ class MyPlayBackService : Service() {
         musicController.songProgress.value=0f
         mediaPlayer?.release()
         scope.cancel()
+        musicController.job?.cancel()
         musicController.songChannel.close()
     }
 
@@ -555,7 +556,6 @@ class MyPlayBackService : Service() {
                               .setShowActionsInCompactView(0, 1, 2)
               )*/
             setOngoing(true)
-
         }.build()
 
 
